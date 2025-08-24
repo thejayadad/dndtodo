@@ -9,7 +9,7 @@ import {
   deleteColumn,
   updateColumnTitle,
 } from '@/lib/column-actions';
-import { createTask, deleteTask, updateTaskPosition } from '@/lib/task-actions';
+import { createTask, deleteTaskAction, updateTaskPosition } from '@/lib/task-actions';
 
 import {
   DndContext,
@@ -27,6 +27,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from 'sonner';
+import DeleteTaskButton from './delete-task-btn';
 
 export interface ColumnWithTasks extends IColumn {
   tasks?: ITask[];
@@ -46,7 +47,12 @@ const TodoBoard: React.FC<TodoBoardProps> = ({ initialColumns = [] }) => {
       setFetching(true);
       try {
         const allColumns = await getAllColumns();
-        setColumns(allColumns);
+        const normalized = allColumns.map(col => ({
+          ...col,
+          _id: col._id.toString(),
+          tasks: col.tasks?.map(t => ({ ...t, _id: t._id.toString() })) || [],
+        }));
+        setColumns(normalized);
       } catch (err) {
         console.error(err);
       } finally {
@@ -60,7 +66,7 @@ const TodoBoard: React.FC<TodoBoardProps> = ({ initialColumns = [] }) => {
     setLoading(true);
     try {
       const newColumn = await createColumn('New Column');
-      setColumns([...columns, { ...newColumn, tasks: [] }]);
+      setColumns([...columns, { ...newColumn, _id: newColumn._id.toString(), tasks: [] }]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -72,8 +78,10 @@ const TodoBoard: React.FC<TodoBoardProps> = ({ initialColumns = [] }) => {
     try {
       await deleteColumn(id);
       setColumns(columns.filter((col) => col._id !== id));
+      toast.success('Column deleted!');
     } catch (err) {
       console.error(err);
+      toast.error('Failed to delete column');
     }
   };
 
@@ -91,7 +99,9 @@ const TodoBoard: React.FC<TodoBoardProps> = ({ initialColumns = [] }) => {
       const newTask = await createTask(columnId, title);
       setColumns(
         columns.map((col) =>
-          col._id === columnId ? { ...col, tasks: [...(col.tasks || []), newTask] } : col
+          col._id === columnId
+            ? { ...col, tasks: [...(col.tasks || []), { ...newTask, _id: newTask._id.toString() }] }
+            : col
         )
       );
     } catch (err) {
@@ -99,68 +109,49 @@ const TodoBoard: React.FC<TodoBoardProps> = ({ initialColumns = [] }) => {
     }
   };
 
-const handleDeleteTask = async (columnId: string, taskId: string) => {
-  try {
-    const deletedId = await deleteTask(taskId);
+  const handleDeleteTask = async (columnId: string, taskId: string) => {
+    try {
+      const deletedId = await deleteTaskAction(taskId);
+      setColumns(prev =>
+        prev.map(col =>
+          col._id === columnId
+            ? { ...col, tasks: col.tasks?.filter(t => t._id !== deletedId) || [] }
+            : col
+        )
+      );
+      toast.success('Task deleted!');
+    } catch (error) {
+      console.error(error);
+      toast.error((error as Error).message || 'Failed to delete task');
+    }
+  };
 
-    setColumns((prevColumns) =>
-      prevColumns.map((col) => {
-        if (col._id !== columnId) return col;
-        return {
-          ...col,
-          tasks: col.tasks?.filter((t) => t._id !== deletedId) || [],
-        };
-      })
-    );
-
-    toast.success('Task deleted!');
-  } catch (err) {
-    console.error(err);
-    toast.error((err as Error).message || 'Failed to delete task');
-  }
-};
-
-
-
-
-
-  // DnD setup
   const sensors = useSensors(useSensor(PointerSensor));
 
-const handleDragEnd = async (event: DragEndEvent, columnId: string) => {
-  const { active, over } = event;
-  if (!over || active.id === over.id) return;
+  const handleDragEnd = async (event: DragEndEvent, columnId: string) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
 
-  // Find the column being dragged
-  const column = columns.find((col) => col._id === columnId);
-  if (!column || !column.tasks) return;
+    const column = columns.find(col => col._id === columnId);
+    if (!column || !column.tasks) return;
 
-  const columnTasks = [...column.tasks];
-  const oldIndex = columnTasks.findIndex((t) => t._id === active.id);
-  const newIndex = columnTasks.findIndex((t) => t._id === over.id);
+    const columnTasks = [...column.tasks];
+    const oldIndex = columnTasks.findIndex(t => t._id === active.id.toString());
+    const newIndex = columnTasks.findIndex(t => t._id === over.id.toString());
+    const newTasks = arrayMove(columnTasks, oldIndex, newIndex);
 
-  const newTasks = arrayMove(columnTasks, oldIndex, newIndex);
-
-  // Update state immediately
-  setColumns((prev) =>
-    prev.map((col) =>
-      col._id === columnId ? { ...col, tasks: newTasks } : col
-    )
-  );
-
-  try {
-    // Persist positions in DB
-    await Promise.all(
-      newTasks.map((task, idx) => updateTaskPosition(task._id, columnId, idx))
+    setColumns(prev =>
+      prev.map(col => (col._id === columnId ? { ...col, tasks: newTasks } : col))
     );
-    toast.success("Tasks reordered!");
-  } catch (err) {
-    console.error(err);
-    toast.error("Failed to save task order");
-  }
-};
 
-
+    try {
+      await Promise.all(newTasks.map((task, idx) => updateTaskPosition(task._id, columnId, idx)));
+      toast.success("Tasks reordered!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save task order");
+    }
+  };
 
   return (
     <div className="px-4 grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 h-full mx-auto max-w-screen-xl">
@@ -242,12 +233,16 @@ const Column: React.FC<ColumnProps> = ({
         </button>
       </div>
 
-      {/* DnD Task List */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => onDragEnd(e, column._id)}>
         <SortableContext items={column.tasks?.map((t) => t._id) || []} strategy={verticalListSortingStrategy}>
           <div className="px-3 py-2 flex-1 overflow-auto">
             {column.tasks?.map((task) => (
-              <SortableTask key={task._id} task={task} onDelete={() => onDeleteTask(column._id, task._id)} />
+              <SortableTask
+                key={task._id}
+                task={task}
+                columnId={column._id}                // pass columnId
+                onDelete={onDeleteTask}               // must match SortableTaskProps
+              />
             ))}
           </div>
         </SortableContext>
@@ -259,7 +254,7 @@ const Column: React.FC<ColumnProps> = ({
           value={taskInput}
           onChange={(e) => setTaskInput(e.target.value)}
           placeholder="Add a task..."
-          className="w-full text-sm px-2 py-1 border rounded focus:outline-none border-neutral-100"
+          className="w-full text-sm px-2 py-1 border rounded focus:outline-none"
         />
       </form>
     </div>
@@ -268,29 +263,28 @@ const Column: React.FC<ColumnProps> = ({
 
 interface SortableTaskProps {
   task: ITask;
-  onDelete: () => void;
+  columnId: string;
+  onDelete: (columnId: string, taskId: string) => void; // must match DeleteTaskButton
 }
 
-const SortableTask: React.FC<SortableTaskProps> = ({ task, onDelete }) => {
+const SortableTask: React.FC<SortableTaskProps> = ({ task, columnId, onDelete }) => {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: task._id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+  const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
       {...attributes}
       {...listeners}
-      className="py-1 border-b border-neutral-200 text-sm flex items-center justify-between bg-white rounded mb-1"
+      style={style}
+      className="p-2 mb-2 rounded bg-neutral-100 flex items-center justify-between text-sm"
     >
       <span>{task.title}</span>
-         <button onClick={onDelete} className="text-red-500 text-xs ml-2">
-        ✕
-      </button>
+      <DeleteTaskButton
+        columnId={columnId}          // required
+        taskId={task._id}            // required
+        onTaskDeleted={onDelete}     // expects (colId, taskId)
+      />
     </div>
   );
 };

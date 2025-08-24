@@ -3,6 +3,7 @@
 import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import { Task } from './task-model';
+import { revalidatePath } from 'next/cache';
 
 export async function createTask(columnId: string, title: string) {
   await dbConnect();
@@ -20,20 +21,24 @@ export async function createTask(columnId: string, title: string) {
   };
 }
 
-export async function deleteTask(taskId: string) {
+export async function deleteTaskAction(taskId: string) {
   await dbConnect();
 
-  if (!mongoose.Types.ObjectId.isValid(taskId)) {
-    throw new Error('Invalid taskId');
+  if (!taskId) {
+    throw new Error('Task ID is required');
   }
 
-  const task = await Task.findByIdAndDelete(taskId);
-  if (!task) {
+  const deletedTask = await Task.findByIdAndDelete(taskId);
+  if (!deletedTask) {
     throw new Error('Task not found');
   }
 
-  return task._id.toString(); // return string id
+  // This revalidates the page so your client components refetch data
+  revalidatePath('/'); // adjust path if needed
+console.log("Deleted " + taskId)
+  return deletedTask._id.toString();
 }
+
 
 
 export async function updateTaskPosition(taskId: string, columnId: string, position: number) {
