@@ -1,17 +1,29 @@
-import mongoose, { Document, Model } from "mongoose";
+// task-model.ts
+import mongoose, { Document, Schema, Types } from "mongoose";
 
-export interface ITask extends Document {
+// DB type
+export interface ITaskDocument extends Document {
+  filter(arg0: (t: any) => boolean): unknown;
   title: string;
   description?: string;
-  columnId: mongoose.Types.ObjectId;
   position: number;
+  columnId: Types.ObjectId;
 }
 
-const TaskSchema = new mongoose.Schema<ITask>({
+// Frontend type
+export interface ITask {
+  _id: string;
+  title: string;
+  description?: string;
+  position: number;
+  columnId: string;
+}
+
+const TaskSchema = new Schema<ITaskDocument>({
   title: { type: String, required: true },
   description: String,
-  columnId: { type: mongoose.Schema.Types.ObjectId, ref: "Column", required: true },
   position: { type: Number, required: true },
+  columnId: { type: Schema.Types.ObjectId, ref: "Column", required: true },
 });
 
-export const Task: Model<ITask> = mongoose.models.Task || mongoose.model<ITask>("Task", TaskSchema);
+export const Task = mongoose.models.Task || mongoose.model<ITaskDocument>("Task", TaskSchema);

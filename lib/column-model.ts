@@ -1,13 +1,22 @@
-import mongoose, { Document, Model } from "mongoose";
+// column-model.ts
+import mongoose, { Document, Schema, Types } from "mongoose";
 
-export interface IColumn extends Document {
+// DB type
+export interface IColumnDocument extends Document {
   title: string;
   position: number;
 }
 
-const ColumnSchema = new mongoose.Schema<IColumn>({
+// Frontend type
+export interface IColumn {
+  _id: string;
+  title: string;
+  position: number;
+}
+
+const ColumnSchema = new Schema<IColumnDocument>({
   title: { type: String, required: true },
   position: { type: Number, required: true },
 });
 
-export const Column: Model<IColumn> = mongoose.models.Column || mongoose.model<IColumn>("Column", ColumnSchema);
+export const Column = mongoose.models.Column || mongoose.model<IColumnDocument>("Column", ColumnSchema);
